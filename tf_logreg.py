@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 class TFLogreg:
 
-    def __init__(self, D, C, param_delta=0.5):
+    def __init__(self, D, C, param_delta=0.5, l2=0):
         """Arguments:
            - D: dimensions of each datapoint
            - C: number of classes
@@ -24,7 +24,7 @@ class TFLogreg:
         self.yp = tf.nn.softmax(self.logits)
 
         self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
-            self.logits, self.Yoh))
+            self.logits, self.Yoh)) + l2 * tf.nn.l2_loss(self.w)
         self.trainer = tf.train.GradientDescentOptimizer(param_delta)
         self.train_op = self.trainer.minimize(self.loss)
 
@@ -37,7 +37,6 @@ class TFLogreg:
            - Yoh_: one-hot encoded labels [NxC]
            - param_niter: number of iterations
         """
-        print(X.shape, Yoh_.shape)
         for i in range(param_niter):
             self.sess.run(self.train_op, feed_dict={
                           self.X: X,
@@ -52,6 +51,7 @@ class TFLogreg:
 
     def predict(self, X):
         return np.argmax(self.eval(X), axis=1)
+
 
 if __name__ == "__main__":
     # inicijaliziraj generatore slučajnih brojeva
@@ -70,19 +70,22 @@ if __name__ == "__main__":
     Yoh.shape
     X.shape
 
-    # izgradi graf:
-    tflr = TFLogreg(X.shape[1], Yoh.shape[1], 0.5)
+    for ll in np.logspace(-4, 4, num=10):
 
-    # nauči parametre:
-    tflr.train(X, Yoh, 1000)
+        print("lambda", ll)
+        # izgradi graf:
+        tflr = TFLogreg(X.shape[1], Yoh.shape[1], 0.5, ll)
 
-    # dohvati vjerojatnosti na skupu za učenje
-    probs = tflr.eval(X)
-    ypp = np.argmax(probs, axis=1)
-    print(classification_report(Y.reshape(-1), ypp))
-    cm = confusion_matrix(Y.reshape(-1), ypp)
-    print("Confusion matrix\n", cm)
-    # iscrtaj rezultate, decizijsku plohu
+        # nauči parametre:
+        tflr.train(X, Yoh, 1000)
+        # dohvati vjerojatnosti na skupu za učenje
+        probs = tflr.eval(X)
+        ypp = np.argmax(probs, axis=1)
+        print(classification_report(Y.reshape(-1), ypp))
+        cm = confusion_matrix(Y.reshape(-1), ypp)
+        print("Confusion matrix\n", cm)
+        # iscrtaj rezultate, decizijsku plohu
 
-    data.graph_data_pred(X, Y, tflr)
+        data.graph_data_pred(X, Y, tflr)
+        tflr.sess.close()
     plt.show()
