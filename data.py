@@ -40,21 +40,59 @@ def sample_gauss_2d(C, N):
     return X, Y
 
 
-def graph_data(X, Y_, Y):
+def graph_data(X, Y_, Y, norm=None):
     '''
     X  ... podatci (np.array dimenzija Nx2)
     Y_ ... točni indeksi razreda podataka (Nx1)
     Y  ... predviđeni indeksi razreda podataka (Nx1)
     '''
 
-    fig = plt.figure()
     T = (Y == Y_).reshape(-1)
     F = ~T
     Xt = X[T]
     Xf = X[F]
 
-    norm = mpl.colors.Normalize()
-    norm.autoscale(Y_)
+    if norm is None:
+        norm = mpl.colors.Normalize()
+        norm.autoscale(Y_)
+
     plt.scatter(Xt[:, 0], Xt[:, 1], c=Y_[T], marker='o', norm=norm, cmap='Paired')
     plt.scatter(Xf[:, 0], Xf[:, 1], c=Y_[F], marker='s', norm=norm, cmap='Paired')
-    return fig
+
+def graph_data_pred(X, Y, model, n=400):
+    '''
+        X podatci
+        Y tocni indexi
+        model
+    '''
+    Yp = model.predict(X).reshape([-1, 1])
+
+    # Plot the decision boundary. For that, we will assign a color to each
+    # point in the mesh [x_min, x_max]x[y_min, y_max].
+    x_min, x_max = X[:, 0].min() - .5, X[:, 0].max() + .5
+    y_min, y_max = X[:, 1].min() - .5, X[:, 1].max() + .5
+    xx, yy = np.meshgrid(np.linspace(x_min, x_max, n), np.linspace(y_min, y_max, n))
+    Z = model.predict(np.c_[xx.ravel(), yy.ravel()])
+
+    # Put the result into a color plot
+    Z = Z.reshape(xx.shape)
+    norm = mpl.colors.Normalize()
+    norm.autoscale(Y)
+
+    plt.pcolormesh(xx, yy, Z, cmap=plt.cm.Paired, norm=norm)
+
+    graph_data(X, Y, Yp, norm=norm)
+
+    plt.xlim(xx.min(), xx.max())
+    plt.ylim(yy.min(), yy.max())
+
+
+def sample_gmm_2d(K, C, N):
+    X, Y = [], []
+    for i in range(K):
+        G = Random2DGaussian()
+        X.append(G.get_sample(N))
+        Y.append(np.full((N, 1), np.random.randint(C), dtype=np.int32))
+    X = np.vstack(X)
+    Y = np.vstack(Y)
+    return X, Y
