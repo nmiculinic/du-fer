@@ -4,6 +4,8 @@ from sklearn.preprocessing import OneHotEncoder
 import data
 from sklearn.metrics import classification_report, confusion_matrix
 import matplotlib.pyplot as plt
+from sklearn.linear_model import LogisticRegression
+
 
 class TFLogreg:
 
@@ -70,7 +72,12 @@ if __name__ == "__main__":
     Yoh.shape
     X.shape
 
-    for ll in np.logspace(-4, 4, num=10):
+    model = LogisticRegression(C=1e5)
+    model.fit(X, Y)
+    data.graph_data_pred(X, Y, model)
+    plt.savefig("lab1/logreg.png")
+
+    for ll in np.logspace(-6, 4, num=50):
 
         print("lambda", ll)
         # izgradi graf:
@@ -87,5 +94,5 @@ if __name__ == "__main__":
         # iscrtaj rezultate, decizijsku plohu
 
         data.graph_data_pred(X, Y, tflr)
+        plt.savefig('lab1/lr_%f.png' % ll)
         tflr.sess.close()
-    plt.show()
