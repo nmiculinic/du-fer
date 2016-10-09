@@ -27,7 +27,7 @@ class TFLogreg:
 
         self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
             self.logits, self.Yoh)) + l2 * tf.nn.l2_loss(self.w)
-        self.trainer = tf.train.GradientDescentOptimizer(param_delta)
+        self.trainer = tf.train.AdamOptimizer(param_delta)
         self.train_op = self.trainer.minimize(self.loss)
 
         self.sess = tf.Session()
