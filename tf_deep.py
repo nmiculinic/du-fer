@@ -17,6 +17,7 @@ class TFDeep:
         self.X = tf.placeholder(tf.float32, [None, layers[0]], "X_input")
         self.Yoh = tf.placeholder(tf.float32, [None, layers[-1]], "Yp_target")
 
+        losses = []
         net = self.X
 
         for k in range(len(layers) - 1):
@@ -24,7 +25,7 @@ class TFDeep:
             j = layers[k + 1]
             w = tf.Variable(tf.random_normal([i, j], 0, (2 / i)**0.5))  # Xavier initialization for Relu
             b = tf.Variable(tf.constant(0, tf.float32, [j]))
-            tf.add_to_collection(tf.GraphKeys.REGULARIZATION_LOSSES, l2 * tf.nn.l2_loss(w))
+            losses.append(tf.nn.l2_loss(w))
             net = tf.matmul(net, w) + b
             if k + 1 < len(layers):
                 net = tf.nn.relu(net)
@@ -33,13 +34,13 @@ class TFDeep:
         self.yp = tf.nn.softmax(self.logits)
 
         self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
-            self.logits, self.Yoh)) + np.sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
+            self.logits, self.Yoh)) + l2 * tf.add_n(losses)
         self.trainer = tf.train.AdamOptimizer(param_delta)
         self.train_op = self.trainer.minimize(self.loss)
         tf.scalar_summary('loss', self.loss)
         self.sess = tf.Session()
 
-        correct_prediction = tf.equal(tf.argmax(self.yp, 1), tf.argmax(self.Yoh, 1))
+        correct_prediction = tf.equal(tf.argmax(self.logits, 1), tf.argmax(self.Yoh, 1))
         accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 
         tf.scalar_summary("accuracy", accuracy)
@@ -135,7 +136,7 @@ if __name__ == "__main__":
     ll = 0
     print("lambda", ll)
     # izgradi graf:
-    tflr = TFDeep([D, 10, 10, C], 0.001, ll)
+    tflr = TFDeep([D, 10, C], 0.001, ll)
     tflr.count_params()
 
     # nauči parametre:
