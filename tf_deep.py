@@ -10,6 +10,7 @@ from os import path
 logdir = path.join(path.dirname(__file__), 'logs')
 print(logdir)
 
+
 class TFDeep:
     def __init__(self, layers, param_delta=0.001, l2=0, ldir=strftime("%d_%b_%Y_%H:%M:%S")):
 
@@ -87,6 +88,7 @@ class TFDeep:
                 idxs = perm[idx - batch_size:idx]
                 batch_xs = X[idxs]
                 batch_ys = Y[idxs]
+                print(batch_xs.shape)
                 self.sess.run(self.train_op, feed_dict={self.X: batch_xs, self.Yoh: batch_ys})
 
             if i % 100 == 0 or i == param_niter - 1:
