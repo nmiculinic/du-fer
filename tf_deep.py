@@ -74,9 +74,7 @@ class TFDeep:
                               self.X: X,
                               self.Yoh: Yoh_})
 
-
     def fit(self, X, Y, Xv, Yv, batch_size, param_niter):
-
 
         self.transform = StandardScaler()
         X = self.transform.fit_transform(X)
@@ -88,7 +86,6 @@ class TFDeep:
                 idxs = perm[idx - batch_size:idx]
                 batch_xs = X[idxs]
                 batch_ys = Y[idxs]
-                print(batch_xs.shape)
                 self.sess.run(self.train_op, feed_dict={self.X: batch_xs, self.Yoh: batch_ys})
 
             if i % 100 == 0 or i == param_niter - 1:
