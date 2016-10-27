@@ -84,6 +84,7 @@ class TFDeep:
 
         self.transform = StandardScaler()
         X = self.transform.fit_transform(X)
+        Xv = self.transform.transform(Xv)
         N = X.shape[0]
 
         for i in range(param_niter):
