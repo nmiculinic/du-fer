@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import data
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from time import strftime
+from tensorflow.contrib import learn, layers
 
 from os import path
 logdir = path.join(path.dirname(__file__), 'logs')
@@ -12,47 +13,51 @@ print(logdir)
 
 
 class TFDeep:
+
     def __init__(self, layers, param_delta=0.001, l2=0, ldir=strftime("%d_%b_%Y_%H:%M:%S")):
 
-        self.X = tf.placeholder(tf.float32, [None, layers[0]], "X_input")
-        self.Yoh = tf.placeholder(tf.float32, [None, layers[-1]], "Yp_target")
+        with tf.Graph().as_default():
+            self.X = tf.placeholder(tf.float32, [None, layers[0]], "X_input")
+            self.Yoh = tf.placeholder(
+                tf.float32, [None, layers[-1]], "Yp_target")
 
-        losses = []
-        net = self.X
+            losses = []
+            net = self.X
 
-        for k in range(len(layers) - 1):
-            i = layers[k]
-            j = layers[k + 1]
-            w = tf.Variable(tf.random_normal([i, j], 0, (2 / i)**0.5))  # Xavier initialization for Relu
-            b = tf.Variable(tf.constant(0, tf.float32, [j]))
-            losses.append(tf.nn.l2_loss(w))
-            net = tf.matmul(net, w) + b
-            if k + 1 < len(layers):
-                net = tf.nn.relu(net)
+            for k in range(len(layers) - 1):
+                i = layers[k]
+                j = layers[k + 1]
+                # Xavier initialization for Relu
+                w = tf.Variable(tf.random_normal([i, j], 0, (2 / i)**0.5))
+                b = tf.Variable(tf.constant(0, tf.float32, [j]))
+                losses.append(tf.nn.l2_loss(w))
+                net = tf.matmul(net, w) + b
+                if k + 2 < len(layers):
+                    net = tf.nn.relu(net)
 
-        self.logits = net
-        self.yp = tf.nn.softmax(self.logits)
+            self.logits = net
+            self.yp = tf.nn.softmax(self.logits)
 
-        self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
-            self.logits, self.Yoh)) + l2 * tf.add_n(losses)
-        self.trainer = tf.train.AdamOptimizer(param_delta)
-        self.train_op = self.trainer.minimize(self.loss)
-        tf.scalar_summary('loss', self.loss)
-        self.sess = tf.Session()
+            self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
+                self.logits, self.Yoh)) + l2 * tf.add_n(losses)
+            self.trainer = tf.train.AdamOptimizer(param_delta)
+            self.train_op = self.trainer.minimize(self.loss)
+            tf.scalar_summary('loss', self.loss)
 
-        correct_prediction = tf.equal(tf.argmax(self.logits, 1), tf.argmax(self.Yoh, 1))
-        accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+            correct_prediction = tf.equal(
+                tf.argmax(self.logits, 1), tf.argmax(self.Yoh, 1))
+            accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 
-        tf.scalar_summary("accuracy", accuracy)
+            tf.scalar_summary("accuracy", accuracy)
+            self.sess = tf.Session()
 
-        self.merged = tf.merge_all_summaries()
-        self.train_writer = tf.train.SummaryWriter(path.join(logdir, ldir, 'train'), self.sess.graph)
+            self.merged = tf.merge_all_summaries()
+            self.train_writer = tf.train.SummaryWriter(
+                path.join(logdir, ldir, 'train'), self.sess.graph)
 
-        self.val_writer = tf.train.SummaryWriter(path.join(logdir, ldir, 'val'),
-                                      self.sess.graph)
+            self.val_writer = tf.train.SummaryWriter(path.join(logdir, ldir, 'val'), self.sess.graph)
 
-
-        self.sess.run(tf.initialize_all_variables())
+            self.sess.run(tf.initialize_all_variables())
 
     def train(self, X, Yoh_, param_niter):
         """Arguments:
@@ -66,8 +71,8 @@ class TFDeep:
         for i in range(param_niter):
             if i % 100 == 0 or i == param_niter - 1:
                 summary, _ = self.sess.run([self.merged, self.train_op], feed_dict={
-                              self.X: X,
-                              self.Yoh: Yoh_})
+                                self.X: X,
+                                self.Yoh: Yoh_})
 
                 self.train_writer.add_summary(summary, i)
             else:
@@ -87,7 +92,8 @@ class TFDeep:
                 idxs = perm[idx - batch_size:idx]
                 batch_xs = X[idxs]
                 batch_ys = Y[idxs]
-                self.sess.run(self.train_op, feed_dict={self.X: batch_xs, self.Yoh: batch_ys})
+                self.sess.run(self.train_op, feed_dict={
+                              self.X: batch_xs, self.Yoh: batch_ys})
 
             if i % 100 == 0 or i == param_niter - 1:
                 summary = self.sess.run(self.merged, feed_dict={
@@ -122,30 +128,30 @@ if __name__ == "__main__":
     tf.set_random_seed(100)
 
     # instanciraj podatke X i labele Yoh
-    D = 2
-    C = 2
-    X, Y = data.sample_gmm_2d(5, C, 10)
+    D=2
+    C=2
+    X, Y=data.sample_gmm_2d(5, C, 10)
 
-    oh = OneHotEncoder(sparse=False)
+    oh=OneHotEncoder(sparse=False)
     oh.fit(Y)
-    Yoh = oh.transform(Y)
+    Yoh=oh.transform(Y)
 
     Yoh.shape
     X.shape
 
-    ll = 0
+    ll=0
     print("lambda", ll)
     # izgradi graf:
-    tflr = TFDeep([D, 10, C], 0.001, ll)
+    tflr=TFDeep([D, 10, C], 0.001, ll)
     tflr.count_params()
 
     # nauči parametre:
     tflr.train(X, Yoh, 10000)
     # dohvati vjerojatnosti na skupu za učenje
-    probs = tflr.eval(X)
-    ypp = np.argmax(probs, axis=1)
+    probs=tflr.eval(X)
+    ypp=np.argmax(probs, axis=1)
     print(classification_report(Y.reshape(-1), ypp))
-    cm = confusion_matrix(Y.reshape(-1), ypp)
+    cm=confusion_matrix(Y.reshape(-1), ypp)
     print("confusion matrix\n", cm)
     # iscrtaj rezultate, decizijsku plohu
 
