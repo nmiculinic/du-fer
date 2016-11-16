@@ -32,7 +32,7 @@ class TFDeep:
                 b = tf.Variable(tf.constant(0, tf.float32, [j]))
                 losses.append(tf.nn.l2_loss(w))
                 net = tf.matmul(net, w) + b
-                if k + 2 < len(layers):
+                if k + 1 < len(layers):
                     net = tf.nn.relu(net)
 
             self.logits = net
@@ -55,9 +55,9 @@ class TFDeep:
             self.train_writer = tf.train.SummaryWriter(
                 path.join(logdir, ldir, 'train'), self.sess.graph)
 
-            self.val_writer = tf.train.SummaryWriter(path.join(logdir, ldir, 'val'), self.sess.graph)
+            self.val_writer = tf.train.SummaryWriter(path.join(logdir, ldir, 'val', self.sess.graph)
 
-            self.sess.run(tf.initialize_all_variables())
+        self.sess.run(tf.initialize_all_variables())
 
     def train(self, X, Yoh_, param_niter):
         """Arguments:
@@ -65,12 +65,12 @@ class TFDeep:
            - Yoh_: one-hot encoded labels [NxC]
            - param_niter: number of iterations
         """
-        self.transform = StandardScaler()
-        X = self.transform.fit_transform(X)
+        self.transform=StandardScaler()
+        X=self.transform.fit_transform(X)
 
         for i in range(param_niter):
             if i % 100 == 0 or i == param_niter - 1:
-                summary, _ = self.sess.run([self.merged, self.train_op], feed_dict={
+                summary, _=self.sess.run([self.merged, self.train_op], feed_dict={
                                 self.X: X,
                                 self.Yoh: Yoh_})
 
@@ -82,28 +82,27 @@ class TFDeep:
 
     def fit(self, X, Y, Xv, Yv, batch_size, param_niter):
 
-        self.transform = StandardScaler()
-        X = self.transform.fit_transform(X)
-        Xv = self.transform.transform(Xv)
-        N = X.shape[0]
+        self.transform=StandardScaler()
+        X=self.transform.fit_transform(X)
+        N=X.shape[0]
 
         for i in range(param_niter):
-            perm = np.random.permutation(N)
+            perm=np.random.permutation(N)
             for idx in range(batch_size, N + 1, batch_size):
-                idxs = perm[idx - batch_size:idx]
-                batch_xs = X[idxs]
-                batch_ys = Y[idxs]
+                idxs=perm[idx - batch_size:idx]
+                batch_xs=X[idxs]
+                batch_ys=Y[idxs]
                 self.sess.run(self.train_op, feed_dict={
                               self.X: batch_xs, self.Yoh: batch_ys})
 
             if i % 100 == 0 or i == param_niter - 1:
-                summary = self.sess.run(self.merged, feed_dict={
+                summary=self.sess.run(self.merged, feed_dict={
                               self.X: X,
                               self.Yoh: Y})
 
                 self.train_writer.add_summary(summary, i)
 
-                summary = self.sess.run(self.merged, feed_dict={
+                summary=self.sess.run(self.merged, feed_dict={
                               self.X: Xv,
                               self.Yoh: Yv})
 

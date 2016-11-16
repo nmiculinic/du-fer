@@ -200,8 +200,7 @@ class FC(Layer):
     Returns:
       An ndarray of shape (N, num_outputs)
     """
-    # TODO
-    pass
+    return np.dot(inputs, self.weights) + self.bias
 
   def backward_inputs(self, grads):
     """
@@ -240,8 +239,9 @@ class ReLU(Layer):
     Returns:
       ndarray of shape (N, C, H, W).
     """
-    # TODO
-    pass
+    self.inputs = inputs
+    return np.maximum(0, inputs)
+
 
   def backward_inputs(self, grads):
     """
@@ -250,9 +250,9 @@ class ReLU(Layer):
     Returns:
       ndarray of shape (N, C, H, W).
     """
-    # TODO
-    pass
-
+    sol = np.copy(grads)
+    sol[self.inputs <= 0] = 0
+    return sol
 
 class SoftmaxCrossEntropyWithLogits():
   def __init__(self):
@@ -269,8 +269,7 @@ class SoftmaxCrossEntropyWithLogits():
       because then learning rate and weight decay won't depend on batch size.
 
     """
-    # TODO
-    pass
+    sol = np.exp(x, axis=0)
 
   def backward_inputs(self, x, y):
     """
@@ -337,4 +336,3 @@ class RegularizedLoss():
     for loss in self.regularizer_losses:
       grads += [loss.backward_params()]
     return grads
-
