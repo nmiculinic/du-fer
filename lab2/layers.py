@@ -272,7 +272,10 @@ class SoftmaxCrossEntropyWithLogits():
       because then learning rate and weight decay won't depend on batch size.
 
     """
-    sol = np.exp(x, axis=0)
+    sol = np.exp(x)
+    sol /= np.sum(sol, keepdims=True, axis=1)
+    sol = -np.log(sol) * y
+    return np.mean(np.sum(sol, axis=1), axis=0)
 
   def backward_inputs(self, x, y):
     """
@@ -282,9 +285,10 @@ class SoftmaxCrossEntropyWithLogits():
     Returns:
       Gradient with respect to the x, ndarray of shape (N, num_classes).
     """
-    # Hint: don't forget that we took the average in the forward pass
-    # TODO
-    pass
+
+    sol = np.exp(x)
+    sol /= np.sum(sol, keepdims=True, axis=1)
+    return 1 / x.shape[0] * (sol - y)
 
 
 class L2Regularizer():
@@ -305,16 +309,17 @@ class L2Regularizer():
      Returns:
       Scalar, loss due to the L2 regularization.
     """
-    # TODO
-    pass
+    sol = self.weight_decay * 0.5 * np.sum(np.square(self.weights))
+    # print ("forward", sol.shape)
+    return sol
 
   def backward_params(self):
     """
     Returns:
       Gradient of the L2 loss with respect to the regularized weights.
     """
-    # TODO
-    grad_weights = ...
+    grad_weights = self.weight_decay * self.weights
+    # print("back", grad_weights.shape)
     return [[self.weights, grad_weights], self.name]
 
 
