@@ -1,24 +1,5 @@
 import numpy as np
-
-
-
-
-
-def rnn_step_backward(self, grad_next, cache):
-    # A single time step backward of a recurrent neural network with a
-    # hyperbolic tangent nonlinearity.
-
-    # grad_next - upstream gradient of the loss with respect to the next hidden state and current output
-    # cache - cached information from the forward pass
-
-    dh_prev, dU, dW, db = None, None, None, None
-
-    # compute and return gradients with respect to each parameter
-    # HINT: you can use the chain rule to compute the derivative of the
-    # hyperbolic tangent function and use it to compute the gradient
-    # with respect to the remaining parameters
-
-    return dh_prev, dU, dW, db
+import unittest
 
 
 def rnn_backward(self, dh, cache):
@@ -41,19 +22,18 @@ class VanilaRNN():
         self.vocab_size = vocab_size
         self.learning_rate = learning_rate
 
-        self.U = np.random.normal([vocab_size, hidden_size], scale=1.0 / np.sqrt(hidden_size))  # ... input projection
-        self.W = np.random.normal([hidden_size, hidden_size], scale=1.0 / np.sqrt(hidden_size))  # ... hidden-to-hidden projection
-        self.b = np.zeros([hidden_size])
+        self.U = np.random.normal(size=[vocab_size, hidden_size], scale=1.0 / np.sqrt(hidden_size))  # ... input projection
+        self.W = np.random.normal(size=[hidden_size, hidden_size], scale=1.0 / np.sqrt(hidden_size))  # ... hidden-to-hidden projection
+        self.b = np.zeros([1, hidden_size])
 
-        self.V = np.random.normal([hidden_size, vocab_size], scale=1.0 / np.sqrt(vocab_size))  # ... output projection
-        self.c = np.zeros([vocab_size])  # ... output bias
+        self.V = np.random.normal(size=[hidden_size, vocab_size], scale=1.0 / np.sqrt(vocab_size))  # ... output projection
+        self.c = np.zeros([1, vocab_size])  # ... output bias
 
         # memory of past gradients - rolling sum of squares for Adagrad
         self.memory_U, self.memory_W, self.memory_V = np.zeros_like(self.U), np.zeros_like(self.W), np.zeros_like(self.V)
         self.memory_b, self.memory_c = np.zeros_like(self.b), np.zeros_like(self.c)
 
-    @staticmethod
-    def rnn_step_forward(x, h_prev, U, W, b):
+    def rnn_step_forward(self, x, h_prev, U=None, W=None, b=None):
         """
         A single time step forward of a recurrent neural network with a
         hyperbolic tangent nonlinearity.
@@ -65,9 +45,12 @@ class VanilaRNN():
         b - bias of shape (hidden size x 1)
         """
 
+        U = U or self.U
+        W = W if W is not None else self.W
+        b = b or self.b
+
         h = np.dot(x, U) + np.dot(h_prev, W) + b
         h = np.tanh(h)
-
         return h, h
 
     def init_backprop(self):
@@ -80,15 +63,17 @@ class VanilaRNN():
         A single time step backward of a recurrent neural network with a
         hyperbolic tangent nonlinearity.
 
-        grad_next - upstream gradient of the loss with respect to the next hidden state and current output
+        grad_next - (N, out) upstream gradient of the loss with respect to the next hidden state and current output
         cache - cached information from the forward pass
         """
 
         th = cache
-        dz = np.dot(grad_next, 1 - th**2)
-        dh_prev = np.dot(dz, self.W)
-        self.dW = np.dot(dz.T, dh_prev)
+        print(grad_next.shape, th.shape)
+        dz = grad_next * (1 - th**2)
+        dh_prev = np.dot(dz, self.W.T)
+        self.dW += np.dot(dh_prev.T, dz)
 
+        print(grad_next.shape, th.shape, dz.shape, dh_prev.shape, cache.shape)
         return dh_prev
 
     def rnn_forward(self, x, h0, U, W, b):
@@ -116,7 +101,6 @@ class VanilaRNN():
 
         return h, cache
 
-
     def rnn_backward(self, dh, cache):
         # Full unroll forward of the recurrent neural network with a
         # hyperbolic tangent nonlinearity
@@ -129,12 +113,95 @@ class VanilaRNN():
 
         return dU, dW, db
 
-if __name__ == "__main__":
-    rnn = VanilaRNN(2, 5, 3, 0.1)
 
-    x = np.zeros([2, 3])
-    x[:, [1,2]] = 1
-    print(x)
+def num_grad(var, fn, eps=1e-7):
+    grad = np.zeros_like(var)
+    for idx in np.ndindex(*var.shape):
+        init = np.copy(var)
+        init[idx] += eps
+        up = fn(init)
+        init = np.copy(var)
+        init[idx] -= eps
+        down = fn(init)
+        grad[idx] = (up - down) / (2 * eps)
+        print(idx, up - down)
 
-    # rnn.rnn_step_forward([1,2,3], , U, W, b)
-    rnn.init_backprop()
+    return grad
+
+
+class TestModel(unittest.TestCase):
+
+    def setUp(self):
+        np.random.seed(42)
+
+        vocab_size = 2
+
+        self.rnn = VanilaRNN(
+            3,
+            5,
+            vocab_size,
+            0.1)
+
+        x = np.zeros([1, vocab_size])
+        x[np.arange(x.shape[0]), [1]] = 1
+        self.x = x
+
+        x4 = np.zeros([4, vocab_size])
+        x4[[0, 1], 1] = 1
+        x4[[2, 3], 0] = 1
+        self.x4 = x4
+
+        self.h0 = np.array([[1.1, 2.1, 0.1]])
+
+    def test_print(self):
+        print("==== PRINT VARS ====")
+        print("X")
+        print(self.x)
+        print("X4")
+        print(self.x4)
+        print("h0")
+        print(self.h0)
+
+    # def test_forward_prop(self):
+    #     h, _ = self.rnn.rnn_step_forward(self.x, self.h0)
+    #     # print(h)
+    #     np.testing.assert_allclose(h, [[0.98763894, -0.20664687, -0.76075404]])
+
+    def test_num_grad(self):
+        grad = num_grad(np.array(2.0), lambda x: x**3)
+        np.testing.assert_allclose(12.0, grad)
+
+    def test_num_grad2(self):
+        grad = num_grad(np.array([2.0, 3.0]), lambda x: np.sum(x**3))
+        np.testing.assert_allclose([12.0, 27.0], grad)
+
+    def test_backprob(self):
+
+        self.rnn.init_backprop()
+        h, cache = self.rnn.rnn_step_forward(self.x4, self.h0)
+        d_prev = self.rnn.rnn_step_backward(2 * np.ones([4, 3]), cache)
+
+        def fn(h0):
+            return np.sum(self.rnn.rnn_step_forward(self.x4, h0))  # Fictional loss = sum(h)
+
+        np.testing.assert_allclose(
+            np.sum(d_prev, axis=0).reshape(1, 3),  # Sum of all gradients
+            num_grad(self.h0, fn)
+        )
+
+    def test_backprob_2(self):
+        h, cache = self.rnn.rnn_step_forward(self.x4, self.h0)
+        self.rnn.init_backprop()
+        self.rnn.rnn_step_backward(np.ones([4, 3]), cache)
+
+        def fn(w):
+            return np.sum(self.rnn.rnn_step_forward(self.x4, self.h0, W=w))  # Fictional loss = sum(h)
+
+        print(num_grad(self.rnn.W, fn))
+        np.testing.assert_allclose(
+            self.rnn.dW,  # Sum of all gradients
+            num_grad(self.rnn.W, fn)
+        )
+
+if __name__ == '__main__':
+    unittest.main()
