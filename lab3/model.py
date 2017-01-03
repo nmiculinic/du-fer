@@ -110,6 +110,7 @@ class VanilaRNN():
             dh -> (batch_size, sequence_length, hidden_size)
             cache -> (sequence_length, cahes)
         """
+        self.init_backprop()
         assert dh.shape[1:] == (self.sequence_length, self.hidden_size)
         dh = dh.transpose(1, 0, 2)  # Switching to time major
         upstream_grad = np.zeros_like(dh[-1])
@@ -188,6 +189,19 @@ class VanilaRNN():
         self.dc = dc
 
         return loss, dh
+
+    def apply_grad(self, eps=1e-6):
+        self.memory_U += np.square(self.dU)
+        self.memory_W += np.square(self.dW)
+        self.memory_b += np.square(self.db)
+        self.memory_V += np.square(self.dV)
+        self.memory_c += np.square(self.dc)
+
+        self.U -= self.learning_rate * self.dU / np.sqrt(self.memory_U + eps)
+        self.W -= self.learning_rate * self.dW / np.sqrt(self.memory_W + eps)
+        self.b -= self.learning_rate * self.db / np.sqrt(self.memory_b + eps)
+        self.V -= self.learning_rate * self.dV / np.sqrt(self.memory_V + eps)
+        self.c -= self.learning_rate * self.dc / np.sqrt(self.memory_c + eps)
 
 
 def num_grad(var, fn, eps=1e-7):
