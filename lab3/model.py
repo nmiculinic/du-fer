@@ -1,19 +1,17 @@
 import numpy as np
 import unittest
 from unittest import skip
+from sklearn.metrics import log_loss
 
 
-def rnn_backward(self, dh, cache):
-    # Full unroll forward of the recurrent neural network with a
-    # hyperbolic tangent nonlinearity
-
-    dU, dW, db = None, None, None
-
-    # compute and return gradients with respect to each parameter
-    # for the whole time series.
-    # Why are we not computing the gradient with respect to inputs (x)?
-
-    return dU, dW, db
+def softmax(z):
+    assert len(z.shape) == 3
+    s = np.max(z, axis=2)
+    s = s[:, :, np.newaxis]  # necessary step to do broadcasting
+    e_x = np.exp(z - s)
+    div = np.sum(e_x, axis=2)
+    div = div[:, :, np.newaxis]  # dito
+    return e_x / div
 
 
 class VanilaRNN():
@@ -55,7 +53,6 @@ class VanilaRNN():
 
         h = np.dot(x, U) + np.dot(h_prev, W) + b
         h = np.tanh(h)
-        # print("__54", h_prev.shape, h.shape, x.shape)
         return h, (h, h_prev, x)
 
     def init_backprop(self):
@@ -106,15 +103,91 @@ class VanilaRNN():
             cache.append(cache_item)
             h.append(h_item)
 
-        return h[1:], cache
+        return np.array(h[1:]).transpose(1, 0, 2), cache  # Batch major h
 
     def rnn_backward(self, dh, cache):
-        self.init_backprop()
+        """
+            dh -> (batch_size, sequence_length, hidden_size)
+            cache -> (sequence_length, cahes)
+        """
+        assert dh.shape[1:] == (self.sequence_length, self.hidden_size)
+        dh = dh.transpose(1, 0, 2)  # Switching to time major
         upstream_grad = np.zeros_like(dh[-1])
         for dh_item, cache_item in reversed(list(zip(dh, cache))):
             upstream_grad = self.rnn_step_backward(dh_item + upstream_grad, cache_item)
 
         return self.dU, self.dW, self.db
+
+    def output(self, h, V=None, c=None):
+        """
+        Calculate the output probabilities of the network
+        h - hidden states of the network for each timestep. the dimensionality of h is (batch size x sequence length x hidden
+        V - the output projection matrix of dimension hidden size x vocabulary size
+        c - the output bias of dimension vocabulary size x 1
+        """
+
+        if V is None:
+            V = self.V
+        if c is None:
+            c = self.c
+
+        logits = np.einsum('ijk,kl->ijl', h, V) + c[np.newaxis, :, :]
+        return logits
+
+    def output_loss_and_grads(self, h, y, V=None, c=None):
+        """
+        Calculate the loss of the network for each of the outputs
+
+        h - hidden states of the network for each timestep.
+         the dimensionality of h is (batch size x sequence length x hidden size (the initial state is irrelevant for the output)
+        y - the true class distribution - a tensor of dimension
+         batch_size x sequence_length x vocabulary size - you need to do this conversion prior to
+         passing the argument. A fast way to create a one-hot vector from
+         an id could be something like the following code:
+
+          y[batch_id][timestep] = np.zeros((vocabulary_size, 1))
+          y[batch_id][timestep][batch_y[timestep]] = 1
+
+         where y might be a list or a dictionary.
+
+         V - the output projection matrix of dimension hidden size x vocabulary size
+         c - the output bias of dimension vocabulary size x 1
+        """
+
+        if V is None:
+            V = self.V
+        if c is None:
+            c = self.c
+
+        batch_size = h.shape[0]
+        np.testing.assert_array_equal(h.shape, (batch_size, self.sequence_length, self.hidden_size))
+
+        o = self.output(h, V=V, c=c)
+
+        np.testing.assert_array_equal(o.shape, (batch_size, self.sequence_length, self.vocab_size))
+
+        yhat = softmax(o)
+        loss = log_loss(y.reshape(-1, self.vocab_size), yhat.reshape(-1, self.vocab_size)) * self.sequence_length  # Since it computes average cross_entropy loss, not accounting for sequence_length
+        do = yhat - y  # (batch_size, sequence_length, vocab_size)
+        assert do.shape == (batch_size, self.sequence_length, self.vocab_size)
+
+        dV = np.zeros_like(V)
+        dc = np.zeros_like(c)
+        dh = []
+        for ddo, hh in zip(do.transpose(1, 0, 2), h.transpose(1, 0, 2)):
+            assert ddo.shape == (batch_size, self.vocab_size)
+            assert hh.shape == (batch_size, self.hidden_size)
+            dV += np.dot(hh.T, ddo) / batch_size
+            dc += np.average(ddo, axis=0)
+            dh.append(np.dot(ddo, V.T))
+        dh = np.array(dh).transpose(1, 0, 2)  # batch major
+        assert dh.shape == h.shape
+        assert dh.shape == (batch_size, self.sequence_length, self.hidden_size)
+
+        self.dV = dV
+        self.dc = dc
+
+        return loss, dh
 
 
 def num_grad(var, fn, eps=1e-7):
@@ -141,7 +214,7 @@ class TestModel(unittest.TestCase):
 
         self.rnn = VanilaRNN(
             3,
-            5,
+            15,
             vocab_size,
             0.1)
 
@@ -156,6 +229,8 @@ class TestModel(unittest.TestCase):
         self.x4 = x4
 
         self.h0 = np.array([[1.1, 2.1, 0.1]])
+
+        self.x_long = np.array([self.x4 for _ in range(self.rnn.sequence_length)]).transpose(1, 0, 2)
 
     @skip("debug only")
     def test_print(self):
@@ -238,16 +313,16 @@ class TestModel(unittest.TestCase):
         )
 
     def test_backprop_len(self):
-        x = np.array([self.x4 for _ in range(self.rnn.sequence_length)])
-        x = x.transpose(1, 0, 2)
-        h, cache = self.rnn.rnn_forward(x, self.h0)
-        dh = [i * np.ones([self.x4.shape[0], self.rnn.hidden_size]) for i in range(1, self.rnn.sequence_length + 1)]
+        self.rnn.init_backprop()
+        h, cache = self.rnn.rnn_forward(self.x_long, self.h0)
+        dh = np.array([i * np.ones([self.x_long.shape[0], self.rnn.hidden_size]) for i in range(1, self.rnn.sequence_length + 1)]).transpose(1, 0, 2)
 
         self.rnn.rnn_backward(dh, cache)
 
         def fn(w):
-            h, _ = self.rnn.rnn_forward(x, self.h0, W=w)
+            h, _ = self.rnn.rnn_forward(self.x_long, self.h0, W=w)
             sol = 0
+            h = h.transpose(1, 0, 2)  # switch to time major
             for i, hh in enumerate(h):
                 sol += np.average(np.sum((i + 1) * hh, axis=1))
             return sol
@@ -256,6 +331,35 @@ class TestModel(unittest.TestCase):
             self.rnn.dW,  # Sum of all gradients
             num_grad(self.rnn.W, fn)
         )
+
+    def test_output_dv(self):
+        h, cache = self.rnn.rnn_forward(self.x_long, self.h0)
+        loss, dh = self.rnn.output_loss_and_grads(h, self.x_long)
+
+        def fn(v):
+            loss, _ = self.rnn.output_loss_and_grads(h, self.x_long, V=v)
+            return loss
+
+        np.testing.assert_allclose(
+            self.rnn.dV,  # Sum of all gradients
+            num_grad(self.rnn.V, fn),
+            rtol=1e-3
+        )
+
+    def test_output_dc(self):
+        h, cache = self.rnn.rnn_forward(self.x_long, self.h0)
+        loss, dh = self.rnn.output_loss_and_grads(h, self.x_long)
+
+        def fn(c):
+            loss, _ = self.rnn.output_loss_and_grads(h, self.x_long, c=c)
+            return loss
+
+        np.testing.assert_allclose(
+            self.rnn.dc,  # Sum of all gradients
+            num_grad(self.rnn.c, fn),
+            rtol=1e-3
+        )
+
 
 if __name__ == '__main__':
     unittest.main()
