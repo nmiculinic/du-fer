@@ -1,5 +1,6 @@
 import numpy as np
 import unittest
+from unittest import skip
 
 
 def rnn_backward(self, dh, cache):
@@ -45,16 +46,16 @@ class VanilaRNN():
         b - bias of shape (hidden size x 1)
         """
 
-        U = U or self.U
+        U = U if U is not None else self.U
         W = W if W is not None else self.W
-        b = b or self.b
+        b = b if b is not None else self.b
         if h_prev.shape[0] == 1:
             h_prev = np.broadcast_to(h_prev, (x.shape[0], h_prev.shape[1]))
         assert x.shape[0] == h_prev.shape[0]
 
         h = np.dot(x, U) + np.dot(h_prev, W) + b
         h = np.tanh(h)
-        print("__54", h_prev.shape, h.shape, x.shape)
+        # print("__54", h_prev.shape, h.shape, x.shape)
         return h, (h, h_prev, x)
 
     def init_backprop(self):
@@ -74,10 +75,12 @@ class VanilaRNN():
         th, h_prev, x = cache
         dz = grad_next * (1 - th**2)
         dh_prev = np.dot(dz, self.W.T)
-        print("__73__", h_prev.shape, dz.shape)
+        # print("__73__", h_prev.shape, dz.shape)
         self.dW += np.dot(h_prev.T, dz)
+        self.dU += np.dot(x.T, dz)
+        self.db += np.sum(dz, axis=0)
 
-        print(grad_next.shape, th.shape, dz.shape, dh_prev.shape)
+        # print(grad_next.shape, th.shape, dz.shape, dh_prev.shape)
         return dh_prev
 
     def rnn_forward(self, x, h0, U, W, b):
@@ -157,6 +160,7 @@ class TestModel(unittest.TestCase):
 
         self.h0 = np.array([[1.1, 2.1, 0.1]])
 
+    @skip("debug only")
     def test_print(self):
         print("==== PRINT VARS ====")
         print("X")
@@ -179,7 +183,7 @@ class TestModel(unittest.TestCase):
         grad = num_grad(np.array([2.0, 3.0]), lambda x: np.sum(x**3))
         np.testing.assert_allclose([12.0, 27.0], grad)
 
-    def test_backprob(self):
+    def test_backprob_h(self):
 
         self.rnn.init_backprop()
         h, cache = self.rnn.rnn_step_forward(self.x4, self.h0)
@@ -194,18 +198,46 @@ class TestModel(unittest.TestCase):
             num_grad(self.h0, fn)
         )
 
-    def test_backprob_2(self):
+    def test_backprob_W(self):
         h, cache = self.rnn.rnn_step_forward(self.x4, self.h0)
         self.rnn.init_backprop()
         self.rnn.rnn_step_backward(np.ones([4, 3]), cache)
 
         def fn(w):
-            return np.sum(self.rnn.rnn_step_forward(self.x4, self.h0, W=w))  # Fictional loss = sum(h)
+            h, _ = self.rnn.rnn_step_forward(self.x4, self.h0, W=w)  # Fictional loss = sum(h)
+            return np.sum(h)
 
-        print(num_grad(self.rnn.W, fn))
         np.testing.assert_allclose(
             self.rnn.dW,  # Sum of all gradients
             num_grad(self.rnn.W, fn)
+        )
+
+    def test_backprob_U(self):
+        h, cache = self.rnn.rnn_step_forward(self.x4, self.h0)
+        self.rnn.init_backprop()
+        self.rnn.rnn_step_backward(np.ones([4, 3]), cache)
+
+        def fn(u):
+            h, _ = self.rnn.rnn_step_forward(self.x4, self.h0, U=u)  # Fictional loss = sum(h)
+            return np.sum(h)
+
+        np.testing.assert_allclose(
+            self.rnn.dU,  # Sum of all gradients
+            num_grad(self.rnn.U, fn)
+        )
+
+    def test_backprob_b(self):
+        h, cache = self.rnn.rnn_step_forward(self.x4, self.h0)
+        self.rnn.init_backprop()
+        self.rnn.rnn_step_backward(np.ones([4, 3]), cache)
+
+        def fn(b):
+            h, _ = self.rnn.rnn_step_forward(self.x4, self.h0, b=b)  # Fictional loss = sum(h)
+            return np.sum(h)
+
+        np.testing.assert_allclose(
+            self.rnn.db,  # Sum of all gradients
+            num_grad(self.rnn.b, fn)
         )
 
 if __name__ == '__main__':
