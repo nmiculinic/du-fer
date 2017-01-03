@@ -203,6 +203,20 @@ class VanilaRNN():
         self.V -= self.learning_rate * self.dV / np.sqrt(self.memory_V + eps)
         self.c -= self.learning_rate * self.dc / np.sqrt(self.memory_c + eps)
 
+    def step(self, h0, x, y):
+        h, cache = self.rnn_forward(x, h0)
+        loss, dh = self.output_loss_and_grads(h, y)
+        self.rnn_backward(dh, cache)
+
+        self.dU = np.clip(self.dU, -5, 5)
+        self.dW = np.clip(self.dW, -5, 5)
+        self.db = np.clip(self.db, -5, 5)
+        self.dV = np.clip(self.dV, -5, 5)
+        self.dc = np.clip(self.dc, -5, 5)
+
+        self.apply_grad()
+
+
 
 def num_grad(var, fn, eps=1e-7):
     grad = np.zeros_like(var)
