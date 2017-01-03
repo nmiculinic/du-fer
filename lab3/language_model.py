@@ -2,6 +2,7 @@ from model import VanilaRNN
 from dataset import Dataset, data_root
 import os
 import numpy as np
+import pickle
 
 
 def oh(x, vocab_size):
@@ -61,6 +62,12 @@ def run_language_model(
 
     average_loss = 0
 
+    save_path = "model_data"
+    if os.path.exists(save_path):
+        with open(save_path, "rb") as f:
+            batch, current_epoch, ds.batch_iter, RNN = pickle.load(f)
+        print("===== Reading datamodel =====")
+
     while current_epoch < max_epochs:
         e, x, y = ds.next_minibatch()
 
@@ -74,9 +81,14 @@ def run_language_model(
         average_loss = 0.9 * average_loss + 0.1 * loss
 
         if batch % sample_every == 0:
-            smp = sample(ds.encode("HAN:\nIs that good or bad?\n\n"), 200, RNN)
+            smp = sample(ds.encode("What is the meaning of life???\n\n"), 200, RNN)
             print("=====", average_loss, " EPOH", current_epoch, "BATCH", batch, "=====")
             print(ds.decode(smp))
+
+        if batch % 1000 == 0:
+            print("===== Saving datamodel =====")
+            with open(save_path, "wb") as f:
+                pickle.dump((batch, current_epoch, ds.batch_iter, RNN), f, protocol=4)
         batch += 1
 
 
