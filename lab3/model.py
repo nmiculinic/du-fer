@@ -49,7 +49,7 @@ class VanilaRNN():
         b = b if b is not None else self.b
         if h_prev.shape[0] == 1:
             h_prev = np.broadcast_to(h_prev, (x.shape[0], h_prev.shape[1]))
-        assert x.shape[0] == h_prev.shape[0]
+        np.testing.assert_equal(h_prev.shape[0], x.shape[0])
 
         h = np.dot(x, U) + np.dot(h_prev, W) + b
         h = np.tanh(h)
@@ -131,9 +131,8 @@ class VanilaRNN():
             V = self.V
         if c is None:
             c = self.c
-
         logits = np.einsum('ijk,kl->ijl', h, V) + c[np.newaxis, :, :]
-        return logits
+        return softmax(logits)
 
     def output_loss_and_grads(self, h, y, V=None, c=None):
         """
@@ -163,11 +162,10 @@ class VanilaRNN():
         batch_size = h.shape[0]
         np.testing.assert_array_equal(h.shape, (batch_size, self.sequence_length, self.hidden_size))
 
-        o = self.output(h, V=V, c=c)
+        yhat = self.output(h, V=V, c=c)
 
-        np.testing.assert_array_equal(o.shape, (batch_size, self.sequence_length, self.vocab_size))
+        np.testing.assert_array_equal(yhat.shape, (batch_size, self.sequence_length, self.vocab_size))
 
-        yhat = softmax(o)
         loss = log_loss(y.reshape(-1, self.vocab_size), yhat.reshape(-1, self.vocab_size)) * self.sequence_length  # Since it computes average cross_entropy loss, not accounting for sequence_length
         do = yhat - y  # (batch_size, sequence_length, vocab_size)
         assert do.shape == (batch_size, self.sequence_length, self.vocab_size)
@@ -215,7 +213,7 @@ class VanilaRNN():
         self.dc = np.clip(self.dc, -5, 5)
 
         self.apply_grad()
-
+        return loss, h[:, -1, :]
 
 
 def num_grad(var, fn, eps=1e-7):
