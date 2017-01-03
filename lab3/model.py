@@ -75,15 +75,13 @@ class VanilaRNN():
         th, h_prev, x = cache
         dz = grad_next * (1 - th**2)
         dh_prev = np.dot(dz, self.W.T)
-        # print("__73__", h_prev.shape, dz.shape)
-        self.dW += np.dot(h_prev.T, dz)
-        self.dU += np.dot(x.T, dz)
-        self.db += np.sum(dz, axis=0)
+        self.dW += np.dot(h_prev.T, dz) / grad_next.shape[0]
+        self.dU += np.dot(x.T, dz) / grad_next.shape[0]
+        self.db += np.sum(dz, axis=0) / grad_next.shape[0]
 
-        # print(grad_next.shape, th.shape, dz.shape, dh_prev.shape)
         return dh_prev
 
-    def rnn_forward(self, x, h0, U, W, b):
+    def rnn_forward(self, x, h0, U=None, W=None, b=None):
         """
         Full unroll forward of the recurrent neural network with a
         hyperbolic tangent nonlinearity
@@ -95,6 +93,10 @@ class VanilaRNN():
         b - bias of shape (hidden size x 1)
         """
 
+        U = U if U is not None else self.U
+        W = W if W is not None else self.W
+        b = b if b is not None else self.b
+
         x = x.transpose(1, 0, 2)
         h = [h0]
         cache = []
@@ -104,21 +106,15 @@ class VanilaRNN():
             cache.append(cache_item)
             h.append(h_item)
 
-        # return the hidden states for the whole time series (T+1) and a tuple of values needed for the backward step
-
-        return h, cache
+        return h[1:], cache
 
     def rnn_backward(self, dh, cache):
-        # Full unroll forward of the recurrent neural network with a
-        # hyperbolic tangent nonlinearity
+        self.init_backprop()
+        upstream_grad = np.zeros_like(dh[-1])
+        for dh_item, cache_item in reversed(list(zip(dh, cache))):
+            upstream_grad = self.rnn_step_backward(dh_item + upstream_grad, cache_item)
 
-        dU, dW, db = None, None, None
-
-        # compute and return gradients with respect to each parameter
-        # for the whole time series.
-        # Why are we not computing the gradient with respect to inputs (x)?
-
-        return dU, dW, db
+        return self.dU, self.dW, self.db
 
 
 def num_grad(var, fn, eps=1e-7):
@@ -150,12 +146,13 @@ class TestModel(unittest.TestCase):
             0.1)
 
         x = np.zeros([1, vocab_size])
-        x[np.arange(x.shape[0]), [1]] = 1
+        x[:, 1] = 1
         self.x = x
 
         x4 = np.zeros([4, vocab_size])
-        x4[[0, 1], 1] = 1
-        x4[[2, 3], 0] = 1
+        # x4[[0, 1], 1] = 1
+        # x4[[2, 3], 0] = 1
+        x4[:, 1] = 1
         self.x4 = x4
 
         self.h0 = np.array([[1.1, 2.1, 0.1]])
@@ -191,10 +188,10 @@ class TestModel(unittest.TestCase):
 
         def fn(h0):
             h, _ = self.rnn.rnn_step_forward(self.x4, h0)
-            return np.sum(h)  # Fictional loss = sum(h)
+            return np.average(np.sum(h, axis=1))  # Fictional loss = sum(h)
 
         np.testing.assert_allclose(
-            np.sum(d_prev, axis=0).reshape(1, 3),  # Sum of all gradients
+            np.average(d_prev, axis=0).reshape(1, 3),  # Sum of all gradients
             num_grad(self.h0, fn)
         )
 
@@ -205,10 +202,10 @@ class TestModel(unittest.TestCase):
 
         def fn(w):
             h, _ = self.rnn.rnn_step_forward(self.x4, self.h0, W=w)  # Fictional loss = sum(h)
-            return np.sum(h)
+            return np.average(np.sum(h, axis=1))
 
         np.testing.assert_allclose(
-            self.rnn.dW,  # Sum of all gradients
+            self.rnn.dW,  # average of all gradients
             num_grad(self.rnn.W, fn)
         )
 
@@ -219,10 +216,10 @@ class TestModel(unittest.TestCase):
 
         def fn(u):
             h, _ = self.rnn.rnn_step_forward(self.x4, self.h0, U=u)  # Fictional loss = sum(h)
-            return np.sum(h)
+            return np.average(np.sum(h, axis=1))
 
         np.testing.assert_allclose(
-            self.rnn.dU,  # Sum of all gradients
+            self.rnn.dU,  # Average of all gradients
             num_grad(self.rnn.U, fn)
         )
 
@@ -233,11 +230,31 @@ class TestModel(unittest.TestCase):
 
         def fn(b):
             h, _ = self.rnn.rnn_step_forward(self.x4, self.h0, b=b)  # Fictional loss = sum(h)
-            return np.sum(h)
+            return np.average(np.sum(h, axis=1))
 
         np.testing.assert_allclose(
-            self.rnn.db,  # Sum of all gradients
+            self.rnn.db,  # Average of all gradients
             num_grad(self.rnn.b, fn)
+        )
+
+    def test_backprop_len(self):
+        x = np.array([self.x4 for _ in range(self.rnn.sequence_length)])
+        x = x.transpose(1, 0, 2)
+        h, cache = self.rnn.rnn_forward(x, self.h0)
+        dh = [i * np.ones([self.x4.shape[0], self.rnn.hidden_size]) for i in range(1, self.rnn.sequence_length + 1)]
+
+        self.rnn.rnn_backward(dh, cache)
+
+        def fn(w):
+            h, _ = self.rnn.rnn_forward(x, self.h0, W=w)
+            sol = 0
+            for i, hh in enumerate(h):
+                sol += np.average(np.sum((i + 1) * hh, axis=1))
+            return sol
+
+        np.testing.assert_allclose(
+            self.rnn.dW,  # Sum of all gradients
+            num_grad(self.rnn.W, fn)
         )
 
 if __name__ == '__main__':
