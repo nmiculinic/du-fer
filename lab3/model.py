@@ -39,7 +39,7 @@ class VanilaRNN():
         hyperbolic tangent nonlinearity.
 
         x - input data (minibatch size x input dimension)
-        h_prev - previous hidden state (minibatch size x hidden size)
+        h_prev - previous hidden state (minibatch size x hidden size) or (1xhidden_size) with broadcasting
         U - input projection matrix (input dimension x hidden size)
         W - hidden to hidden projection matrix (hidden size x hidden size)
         b - bias of shape (hidden size x 1)
@@ -48,10 +48,14 @@ class VanilaRNN():
         U = U or self.U
         W = W if W is not None else self.W
         b = b or self.b
+        if h_prev.shape[0] == 1:
+            h_prev = np.broadcast_to(h_prev, (x.shape[0], h_prev.shape[1]))
+        assert x.shape[0] == h_prev.shape[0]
 
         h = np.dot(x, U) + np.dot(h_prev, W) + b
         h = np.tanh(h)
-        return h, h
+        print("__54", h_prev.shape, h.shape, x.shape)
+        return h, (h, h_prev, x)
 
     def init_backprop(self):
         self.dU = np.zeros_like(self.U)
@@ -67,13 +71,13 @@ class VanilaRNN():
         cache - cached information from the forward pass
         """
 
-        th = cache
-        print(grad_next.shape, th.shape)
+        th, h_prev, x = cache
         dz = grad_next * (1 - th**2)
         dh_prev = np.dot(dz, self.W.T)
-        self.dW += np.dot(dh_prev.T, dz)
+        print("__73__", h_prev.shape, dz.shape)
+        self.dW += np.dot(h_prev.T, dz)
 
-        print(grad_next.shape, th.shape, dz.shape, dh_prev.shape, cache.shape)
+        print(grad_next.shape, th.shape, dz.shape, dh_prev.shape)
         return dh_prev
 
     def rnn_forward(self, x, h0, U, W, b):
@@ -124,7 +128,7 @@ def num_grad(var, fn, eps=1e-7):
         init[idx] -= eps
         down = fn(init)
         grad[idx] = (up - down) / (2 * eps)
-        print(idx, up - down)
+        # print(idx, up - down)
 
     return grad
 
@@ -179,10 +183,11 @@ class TestModel(unittest.TestCase):
 
         self.rnn.init_backprop()
         h, cache = self.rnn.rnn_step_forward(self.x4, self.h0)
-        d_prev = self.rnn.rnn_step_backward(2 * np.ones([4, 3]), cache)
+        d_prev = self.rnn.rnn_step_backward(np.ones([4, 3]), cache)
 
         def fn(h0):
-            return np.sum(self.rnn.rnn_step_forward(self.x4, h0))  # Fictional loss = sum(h)
+            h, _ = self.rnn.rnn_step_forward(self.x4, h0)
+            return np.sum(h)  # Fictional loss = sum(h)
 
         np.testing.assert_allclose(
             np.sum(d_prev, axis=0).reshape(1, 3),  # Sum of all gradients
