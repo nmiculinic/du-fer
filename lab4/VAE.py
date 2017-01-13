@@ -4,8 +4,8 @@ from tensorflow.examples.tutorials.mnist import input_data
 import os
 import matplotlib.pyplot as plt
 import shutil
-
-shutil.rmtree('train')
+import seaborn as sns
+sns.set_style('dark')
 
 mnist = input_data.read_data_sets('MNIST_data', one_hot=True)
 n_samples = mnist.train.num_examples
@@ -13,13 +13,14 @@ n_samples = mnist.train.num_examples
 learning_rate = 0.001
 batch_size = 100
 
-
 n_hidden_recog_1 = 200  # 1 sloj enkodera
 n_hidden_recog_2 = 200  # 2 sloj enkodera
 n_hidden_gener_1 = 200  # 1 sloj dekodera
 n_hidden_gener_2 = 200  # 2 sloj dekodera
 n_z = 2  # broj skrivenih varijabli
 n_input = 784  # MNIST data input (img shape: 28*28)
+
+shutil.rmtree('train/run_%d' % n_z, ignore_errors=True)
 
 
 def draw_reconstructions(ins, outs, states, shape_in, shape_state):
@@ -110,13 +111,11 @@ with tf.Session() as sess:
         # definirajte skrivene varijable i pripadajući generator šuma
         z_mean = vae_layer(layer_e2, n_hidden_recog_2,
                            n_z, 'z_mean', act=tf.identity)
-        z_log_sigma_sq = vae_layer(
-            layer_e2, n_hidden_recog_2, n_z, 'z_log_sigma', act=tf.identity)
+        z_sigma = vae_layer(
+            layer_e2, n_hidden_recog_2, n_z, 'z_sigma', act=tf.identity)
         eps = tf.random_normal((batch_size, n_z), 0, 1, dtype=tf.float32)
 
-        z_log_sigma_sq = tf.clip_by_value(z_log_sigma_sq, -10, 5)
-
-        z = z_mean + tf.sqrt(tf.exp(z_log_sigma_sq)) * eps
+        z = z_mean + z_sigma * eps
         tf.summary.histogram('z/activations', z)
 
     # definirajte dekoderski dio
@@ -126,7 +125,7 @@ with tf.Session() as sess:
 
     # definirajte srednju vrijednost rekonstrukcije
     x_reconstr_mean = vae_layer(
-        layer_d2, n_hidden_gener_2, n_input, 'layer_decoder')
+        layer_d2, n_hidden_gener_2, n_input, 'layer_decoder', act=tf.identity)
 
     x_reconstr_mean_out = tf.nn.sigmoid(x_reconstr_mean)
 
@@ -136,10 +135,12 @@ with tf.Session() as sess:
         cost1_ce = tf.reduce_sum(
             tf.nn.sigmoid_cross_entropy_with_logits(x_reconstr_mean, x), axis=1)
         # komponenta funkcije cijene - KL divergencija
-        cost_kl = 0.5 * (1 + z_log_sigma_sq - z_mean - tf.exp(z_log_sigma_sq))
+        z_sigma_sq = z_sigma * z_sigma
+        cost_kl = -0.5 * (1 + tf.log(z_sigma_sq) - z_mean * z_mean - z_sigma_sq)
         cost_kl = tf.reduce_sum(cost_kl, axis=1)
 
-        cost_kl = tf.Print(cost_kl, [tf.shape(cost_kl)], message="bitches", first_n=5)
+        # cost_kl = tf.Print(cost_kl, [tf.shape(cost_kl)], message="bitches", first_n=5)
+
         cost = tf.reduce_mean(cost1_ce + cost_kl)   # average over batch
         # cost = tf.Print(cost, [tf.reduce_mean(cost1_ce), tf.reduce_mean], message="cost")
         tf.summary.scalar('cost', cost)
@@ -153,7 +154,7 @@ with tf.Session() as sess:
 
     # Prikupljanje podataka za Tensorboard
     merged = tf.summary.merge_all()
-    train_writer = tf.summary.FileWriter('train/run1', sess.graph, flush_secs=5)
+    train_writer = tf.summary.FileWriter('train/run_%d' % n_z, sess.graph, flush_secs=5)
 
     sess.run(tf.global_variables_initializer())
 
@@ -166,21 +167,26 @@ with tf.Session() as sess:
         total_batch = int(n_samples / batch_size)
 
         for i in range(total_batch):
+            step = i + epoch * total_batch
             batch_xs, _ = mnist.train.next_batch(batch_size)
-            opt, cos, summ = sess.run((optimizer, cost, merged), feed_dict={x: batch_xs})
+            if step % 50 == 0:
+                _, cos, summ = sess.run((optimizer, cost, merged), feed_dict={x: batch_xs})
+                train_writer.add_summary(summ, step)
+            else:
+                _, cos = sess.run((optimizer, cost), feed_dict={x: batch_xs})
+
             avg_cost += cos / n_samples * batch_size
-            train_writer.add_summary(summ, i + epoch * total_batch)
+            print(epoch, step, cos)
 
-        if epoch % 10 == 9:
-            print("Epoch:", '%04d' % (epoch + 1),
-                  "cost=", "{:.9f}".format(avg_cost))
-            run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
-            run_metadata = tf.RunMetadata()
-            summary, _ = sess.run([merged, optimizer], feed_dict={x: batch_xs},
-                                  options=run_options, run_metadata=run_metadata)
-            train_writer.add_run_metadata(run_metadata, 'epoch%03d' % epoch)
+        print("Epoch:", '%04d' % (epoch + 1),
+              "cost=", "{:.9f}".format(avg_cost))
+        run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+        run_metadata = tf.RunMetadata()
+        summary, _ = sess.run([merged, optimizer], feed_dict={x: batch_xs},
+                              options=run_options, run_metadata=run_metadata)
+        train_writer.add_run_metadata(run_metadata, 'epoch%03d' % epoch)
 
-            saver.save(sess, os.path.join('train', "model.ckpt"), epoch)
+        saver.save(sess, os.path.join('train', "model.ckpt"), epoch)
 
     train_writer.close()
 
@@ -189,7 +195,13 @@ with tf.Session() as sess:
     x_reconstruct, z_out = sess.run(
         [x_reconstr_mean_out, z], feed_dict={x: x_sample})
 
-    draw_reconstructions(x_sample, x_reconstruct, z_out, (28, 28), (4, 5))
+    if n_z == 20:
+        draw_reconstructions(x_sample, x_reconstruct, z_out, (28, 28), (4, 5))
+    elif n_z == 2:
+        draw_reconstructions(x_sample, x_reconstruct, z_out, (28, 28), (2, 1))
+    else:
+        print("whatever")
+    plt.savefig('VAE_%d_rek.png' % n_z)
 
     # Vizualizacija raspored testnih uzoraka u 2D prostoru skrivenih varijabli
     # - 1. način
@@ -197,28 +209,29 @@ with tf.Session() as sess:
     z_mu = sess.run(z_mean, feed_dict={x: x_sample})
 
     plt.figure(figsize=(8, 6))
-    plt.scatter(z_mu[:, 0], z_mu[:, 1], c=np.argmax(y_sample, 1))
+    plt.scatter(z_mu[:, 0], z_mu[:, 1], c=np.argmax(y_sample, 1), cmap=plt.cm.get_cmap('Accent'))
     plt.colorbar()
-    plt.savefig('VAE_1.png')
+    plt.savefig('VAE_%d_1.png' % n_z)
 
     # Vizualizacija raspored testnih uzoraka u 2D prostoru skrivenih varijabli
     # - 2. način
 
-    nx = ny = 20
-    x_values = np.linspace(-3, 3, nx)
-    y_values = np.linspace(-3, 3, ny)
+    if n_z == 2:
+        nx = ny = 20
+        x_values = np.linspace(-3, 3, nx)
+        y_values = np.linspace(-3, 3, ny)
 
-    canvas = np.empty((28 * ny, 28 * nx))
-    for i, yi in enumerate(x_values):
-        for j, xi in enumerate(y_values):
-            z_mu = np.array([[xi, yi]])
-            x_mean = sess.run(x_reconstr_mean_out, feed_dict={
-                              z: np.repeat(z_mu, 100, 0)})
-            canvas[(nx - i - 1) * 28:(nx - i) * 28, j *
-                   28:(j + 1) * 28] = x_mean[0].reshape(28, 28)
+        canvas = np.empty((28 * ny, 28 * nx))
+        for i, yi in enumerate(x_values):
+            for j, xi in enumerate(y_values):
+                z_mu = np.array([[xi, yi]])
+                x_mean = sess.run(x_reconstr_mean_out, feed_dict={
+                                  z: np.repeat(z_mu, 100, 0)})
+                canvas[(nx - i - 1) * 28:(nx - i) * 28, j *
+                       28:(j + 1) * 28] = x_mean[0].reshape(28, 28)
 
-    plt.figure(figsize=(8, 10))
-    Xi, Yi = np.meshgrid(x_values, y_values)
-    plt.imshow(canvas, origin="upper")
-    plt.tight_layout()
-    plt.savefig('VAE_2.png')
+        plt.figure(figsize=(8, 10))
+        Xi, Yi = np.meshgrid(x_values, y_values)
+        plt.imshow(canvas, origin="upper")
+        plt.tight_layout()
+        plt.savefig('VAE_2.png')
