@@ -23,6 +23,7 @@ total_batch = int(n_samples / batch_size) * epochs
 X = tf.placeholder("float", [None, 784])
 
 rbm = RBM(X, Nh)
+rbm.create_rec()
 
 with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())

@@ -15,6 +15,7 @@ def sample_prob(probs):
 class RBM():
 
     def __init__(self, input_layer, num_out, inbias=None, outbias=None, gibbs_sampling_steps=1, alpha=0.1):
+        self.input_layer = input_layer
         n_in = input_layer.get_shape()[1]
         self.W = tf.get_variable(
             "W",
@@ -59,11 +60,15 @@ class RBM():
                 (-tf.reduce_mean(input_layer - v1_prob, 0), self.b_in),
                 (-tf.reduce_mean(h0 - h1, 0), self.b_out)
             ])
-
-        # rekonstrukcija ualznog vektora - koristimo vjerojatnost p(v=1)
-        self.rec = tf.nn.sigmoid(tf.matmul(h0, tf.transpose(self.W)) + self.b_in)
-        err1 = input_layer - self.rec
+        err1 = input_layer - tf.nn.sigmoid(tf.matmul(h0, tf.transpose(self.W)) + self.b_in)
         self.mse = tf.reduce_mean(err1 * err1)
+
+    def create_rec(self, upward_tensor=None):
+        # rekonstrukcija ualznog vektora - koristimo vjerojatnost p(v=1)
+        if upward_tensor is None:
+            upward_tensor = self.out
+        self.rec = tf.nn.sigmoid(tf.matmul(upward_tensor, tf.transpose(self.W)) + self.b_in)
+
 
 
 def draw_weights(W, shape, N, interpolation="bilinear"):
