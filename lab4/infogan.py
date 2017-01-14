@@ -6,6 +6,7 @@ from tflearn.layers.conv import conv_2d_transpose, conv_2d
 from tflearn.layers.normalization import batch_normalization
 # from tflearn.activations import leaky_relu
 import seaborn as sns
+import numpy as np
 
 sns.set_style("dark")
 
@@ -20,12 +21,15 @@ def leaky_relu(x):
 
 class InfoGAN():
     def __init__(self, batch_size, num_z=20, n_bernulli=10, n_gauss=3, l_bernulli=1.0, l_gauss=0.5):
+        batch_size = tf.placeholder_with_default(batch_size, [])
+        self.batch_size = batch_size
         with tf.name_scope("gen"):
             self.n_bernulli = n_bernulli
             self.n_gauss = n_gauss
             self.n_c = n_gauss + n_bernulli
 
-            self.c_bernulli = tf.to_float(tf.random_uniform([batch_size, n_bernulli]) < 0.5)
+            self.c_bernulli = tf.to_float(
+                tf.random_uniform([batch_size, n_bernulli]) < 0.5)
 
             self.c_gauss = tf.random_normal([batch_size, n_gauss])
 
@@ -57,12 +61,14 @@ class InfoGAN():
             )  # Average loss per c_bernulli
 
             qc_mean = fully_connected(qnet, n_gauss, scope='normal_mu')
-            qc_sigma = tf.abs(fully_connected(qnet, n_gauss, scope='normal_sigma'))
+            qc_sigma = tf.abs(fully_connected(
+                qnet, n_gauss, scope='normal_sigma')
+            )
 
             dist = tf.contrib.distributions.Normal(qc_mean, qc_sigma)
             qc_log_normal = dist.log_pdf(self.c_gauss)
-            print("qc_normal", qc_log_normal.get_shape())
-            self.loss_q_gauss = tf.reduce_mean(-qc_log_normal * self.c_gauss)  # -log jer minimiziram
+            print("qc_normal", qc_log_normal.get_shape())  # -log jer minimiziram
+            self.loss_q_gauss = tf.reduce_mean(-qc_log_normal * self.c_gauss)
 
         self.loss_g = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(
@@ -158,12 +164,40 @@ class InfoGAN():
         net = leaky_relu(net)
         return net
 
-
-
     def disriminator(self, net):
         net = self.dq_common(net)
         net = fully_connected(net, 1, scope='fc')
         return net, tf.nn.sigmoid(net)
+
+    def jupyter_sample_widgets(self, sess, rows=4, cols=4):
+        from ipywidgets import interact
+
+        def f(**kwargs):
+            c_bernulli = np.array([
+                kwargs["b%d" % i] for i in range(self.n_bernulli)
+            ])
+            c_gauss = np.array([
+                kwargs["g%d" % i] for i in range(self.n_bernulli)
+            ])
+
+            pics = sess.run(self.g, feed_dict={
+                self.c_gauss: np.tile(c_gauss, (rows * cols, 1)),
+                self.c_bernulli: np.tile(c_bernulli, (rows * cols, 1)),
+                self.batch_size: rows * cols
+            })
+            pics = pics.reshape(rows * cols, 28, 28)
+            fig, axes = plt.subplots(rows, cols, sharex=True, sharey=True)
+            for i, ax in enumerate(axes.ravel()):
+                ax.imshow(pics[i], vmin=0, vmax=1, interpolation="nearest")
+            fig.tight_layout()
+            return fig
+
+        return interact(
+            f,
+            **{"b%d" % i for i in range(self.n_bernulli)},
+            **{"g%d" % i for i in range(self.n_gauss)},
+            __manual=True
+        )
 
 
 if __name__ == "__main__":
