@@ -177,7 +177,7 @@ class InfoGAN():
                 kwargs["b%d" % i] for i in range(self.n_bernulli)
             ])
             c_gauss = np.array([
-                kwargs["g%d" % i] for i in range(self.n_bernulli)
+                kwargs["g%d" % i] for i in range(self.n_gauss)
             ])
 
             pics = sess.run(self.g, feed_dict={
