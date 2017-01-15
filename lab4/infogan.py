@@ -290,13 +290,12 @@ class InfoGAN():
             if must_exist:
                 raise ValueError("No checkpoints found")
             iter_step = self.get_global_step()
-            self.logger.info("%4d Restored to checkpoint %s" %
-                             (iter_step, checkpoint))
+            self.logger.warn("%4d No Checkpoints found", iter_step)
         else:
             self.saver.restore(self.sess, checkpoint)
             iter_step = self.get_global_step()
-            self.logger.info("%4d Restored to checkpoint %s" %
-                             (iter_step, checkpoint))
+            self.logger.info("%4d Restored to checkpoint %s",
+                             iter_step, checkpoint)
         return iter_step
 
     def init_session(self):
