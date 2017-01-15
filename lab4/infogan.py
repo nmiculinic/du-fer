@@ -143,10 +143,11 @@ class InfoGAN():
 
             self.logger.info("Graph construction finished")
             self.logger.info("log_dir %s", self.log_dir)
+            if os.path.exists(self.log_dir):
+                self.logger.warn("Logdir exists!")
             if clear_logdir:
                 self.logger.info("Clearing logdir")
                 shutil.rmtree(self.log_dir, ignore_errors=True)
-
             self.train_writer = tf.summary.FileWriter(
                 self.log_dir, graph=tf.get_default_graph(), flush_secs=60)
             self.saver = tf.train.Saver(
