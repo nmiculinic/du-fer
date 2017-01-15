@@ -1,6 +1,5 @@
 import tensorflow as tf
 from tensorflow.examples.tutorials.mnist import input_data
-import matplotlib.pyplot as plt
 from tflearn.layers.core import fully_connected
 from tflearn.layers.conv import conv_2d_transpose, conv_2d
 from tflearn.layers.normalization import batch_normalization
@@ -149,7 +148,7 @@ class InfoGAN():
                 self.logger.info("Clearing logdir")
                 shutil.rmtree(self.log_dir, ignore_errors=True)
             self.train_writer = tf.summary.FileWriter(
-                self.log_dir, graph=tf.get_default_graph(), flush_secs=60)
+                self.log_dir, graph=self.graph, flush_secs=60)
             self.saver = tf.train.Saver(
                 keep_checkpoint_every_n_hours=1,
             )
