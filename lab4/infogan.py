@@ -2,7 +2,6 @@ import tensorflow as tf
 from tensorflow.examples.tutorials.mnist import input_data
 from tflearn.layers.core import fully_connected
 from tflearn.layers.conv import conv_2d_transpose, conv_2d
-from tflearn.layers.normalization import batch_normalization
 import seaborn as sns
 import numpy as np
 import shutil
@@ -12,7 +11,7 @@ import socket
 import logging
 
 log_fmt = '[%(levelname)s] %(name)s: %(message)s'
-logging.basicConfig(level=logging.INFO, format=log_fmt)
+logging.basicConfig(level=logging.DEBUG, format=log_fmt)
 sns.set_style("dark")
 mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
 repo_root = os.path.abspath(os.path.normpath(os.path.join(os.path.dirname(__file__), '..')))
@@ -23,30 +22,15 @@ def leaky_relu(x):
 
 
 def default_generator(net):
-    net = fully_connected(net, 4 * 4 * 512, scope='fc')
-    net = tf.reshape(net, [tf.shape(net)[0], 4, 4, 512])
-
-    for i in range(3):
-        i2 = 2**i
-        net = conv_2d_transpose(
-            net, 256 // i2, 5, [7 * i2, 7 * i2], strides=2, scope="l%d" % (i + 1), bias=False)
-        net = batch_normalization(net, scope="bn_%d" % (i + 1))
-        net = tf.nn.relu(net)
-
-    net = conv_2d_transpose(net, 1, 5, [28, 28], scope="l4", bias=True)
+    net = fully_connected(net, 7 * 7 * 16, scope='fc')
+    net = tf.reshape(net, [tf.shape(net)[0], 7, 7, 16])
+    net = conv_2d_transpose(net, 1, 5, [28, 28], scope="l0", strides=4, bias=True)
     return net
 
 
 def default_dq_common(net):
-    net = conv_2d(net, 64, 5, strides=2, scope='l1')
+    net = conv_2d(net, 64, 5, strides=2, scope='l0')
     net = leaky_relu(net)
-
-    for i in range(4):
-        net = conv_2d(net, 64 * 2**i, 5, strides=2, scope='l%d' % (i + 2),
-                      bias=False)  # BN handles bias
-        net = batch_normalization(net, scope='bn_l%d' % (i + 2))
-        net = leaky_relu(net)
-
     return net
 
 
@@ -90,11 +74,13 @@ class InfoGAN():
                 self.g = tf.nn.sigmoid(self.g_log)
 
             with tf.variable_scope("disriminator"):
-                self.d_log_real, self.d_real = self.disriminator(self.X)
+                self.d_log_real = fully_connected(self.dq_common(self.X), 1, scope='fc')
+                self.d_real = tf.nn.sigmoid(self.d_log_real)
 
             with tf.variable_scope("disriminator", reuse=True):
-                self.d_log_fake, self.d_fake = self.disriminator(self.g)
                 qnet = self.dq_common(self.g)
+                self.d_log_fake = fully_connected(qnet, 1, scope='fc')
+                self.d_fake = tf.nn.sigmoid(self.d_log_fake)
 
             with tf.variable_scope("q"):
                 if n_bernulli > 0:
@@ -160,26 +146,26 @@ class InfoGAN():
                     tf.summary.scalar("d", self.loss_d),
                 ])
 
-            d_vars = tf.get_collection(
+            self.d_vars = tf.get_collection(
                 tf.GraphKeys.TRAINABLE_VARIABLES,
                 scope='disriminator'
             )
-            g_vars = tf.get_collection(
+            self.g_vars = tf.get_collection(
                 tf.GraphKeys.TRAINABLE_VARIABLES,
                 scope='generator'
             )
-            q_vars = tf.get_collection(
+            self.q_vars = tf.get_collection(
                 tf.GraphKeys.TRAINABLE_VARIABLES,
                 scope='q'
             )
 
             self.train_d = tf.train.AdamOptimizer(2e-4, beta1=0.5).minimize(
                 self.loss_d,
-                var_list=d_vars
+                var_list=self.d_vars
             )
             self.train_gq = tf.train.AdamOptimizer(2e-4, beta1=0.5).minimize(
                 self.loss_g + self.loss_q,
-                var_list=[*g_vars, *q_vars]
+                var_list=[*self.g_vars, *self.q_vars]
             )
 
             self.global_step = tf.get_variable("global_step", initializer=tf.constant_initializer(), shape=(), dtype=tf.int32)
@@ -224,11 +210,6 @@ class InfoGAN():
             self.save()
 
         self.sess.run(self.inc_global_step)
-
-    def disriminator(self, net):
-        net = self.dq_common(net)
-        net = fully_connected(net, 1, scope='fc')
-        return net, tf.nn.sigmoid(net)
 
     def __img_from_data(self, pics, osize):
         from PIL import Image
@@ -314,8 +295,8 @@ class InfoGAN():
 
     def init_session(self):
         self.sess = tf.Session(graph=self.graph)
-        self.graph.finalize()
         self.sess.run(self.init_op)
+        # self.graph.finalize()
         self.logger.info("Created session")
 
     def close_session(self):
@@ -329,7 +310,21 @@ if __name__ == "__main__":
     try:
         model.init_session()
         model.restore()
+
+        with model.graph.as_default():
+            for var in tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES):
+                model.logger.debug(var.name)
+
+            model.logger.debug("G phase vars")
+            for var in [*model.g_vars, *model.q_vars]:
+                model.logger.debug(var.name)
+
+            model.logger.debug("D phase vars")
+            for var in model.d_vars:
+                model.logger.debug(var.name)
+
         for i in range(model.get_global_step() + 1, 101):
             model.train_loop(summary_every=10)
+            model.graph.finalize()
     finally:
         model.close_session()
