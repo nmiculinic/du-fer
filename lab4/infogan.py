@@ -39,22 +39,17 @@ class InfoGAN():
         self.log_dir = os.path.join(
             repo_root, 'log', socket.gethostname(), name)
         self.logger = logging.getLogger(name)
+        if os.path.exists(self.log_dir):
+            self.logger.warn("Logdir exists!")
+        if clear_logdir:
+            self.logger.info("Clearing logdir")
+            shutil.rmtree(self.log_dir, ignore_errors=True)
 
         self.graph = tf.Graph()
         with self.graph.as_default():
 
-            if generator_fn is None:
-                self.logger.warn("Using default generator function")
-                generator_fn = default_generator
-            self.generator = generator_fn
-
-            if dq_common_fn is None:
-                self.logger.warn("Using default dq_common function")
-                dq_common_fn = default_dq_common
-            self.dq_common = dq_common_fn
-
-            batch_size = tf.placeholder_with_default(batch_size, [])
-            self.batch_size = batch_size
+            self.batch_size = tf.placeholder_with_default(batch_size, [])
+            self.X = tf.placeholder(tf.float32, [None, 28, 28, 1])  # MNIST
 
             with tf.name_scope("gen"):
                 self.n_bernulli = n_bernulli
@@ -62,18 +57,26 @@ class InfoGAN():
                 self.n_c = n_gauss + n_bernulli
 
                 self.c_bernulli = tf.to_float(
-                    tf.random_uniform([batch_size, n_bernulli]) < 0.5)
-                self.c_gauss = tf.random_normal([batch_size, n_gauss])
+                    tf.random_uniform([self.batch_size, n_bernulli]) < 0.5)
+                self.c_gauss = tf.random_normal([self.batch_size, n_gauss])
 
-                self.z = tf.random_uniform(shape=[batch_size, num_z])
+                self.z = tf.random_uniform(shape=[self.batch_size, num_z])
                 self.z = tf.concat_v2([self.c_gauss, self.c_bernulli, self.z], 1)
 
-            self.X = tf.placeholder(tf.float32, [None, 28, 28, 1])
             with tf.variable_scope("generator"):
+                if generator_fn is None:
+                    self.logger.warn("Using default generator function")
+                    generator_fn = default_generator
+                self.generator = generator_fn
+
                 self.g_log = self.generator(self.z)
                 self.g = tf.nn.sigmoid(self.g_log)
 
             with tf.variable_scope("disriminator"):
+                if dq_common_fn is None:
+                    self.logger.warn("Using default dq_common function")
+                    dq_common_fn = default_dq_common
+                self.dq_common = dq_common_fn
                 self.d_log_real = fully_connected(self.dq_common(self.X), 1, scope='fc')
                 self.d_real = tf.nn.sigmoid(self.d_log_real)
 
@@ -146,39 +149,36 @@ class InfoGAN():
                     tf.summary.scalar("d", self.loss_d),
                 ])
 
-            self.d_vars = tf.get_collection(
-                tf.GraphKeys.TRAINABLE_VARIABLES,
-                scope='disriminator'
-            )
-            self.g_vars = tf.get_collection(
-                tf.GraphKeys.TRAINABLE_VARIABLES,
-                scope='generator'
-            )
-            self.q_vars = tf.get_collection(
-                tf.GraphKeys.TRAINABLE_VARIABLES,
-                scope='q'
-            )
+            with tf.name_scope("train"):
+                self.d_vars = tf.get_collection(
+                    tf.GraphKeys.TRAINABLE_VARIABLES,
+                    scope='disriminator'
+                )
+                self.g_vars = tf.get_collection(
+                    tf.GraphKeys.TRAINABLE_VARIABLES,
+                    scope='generator'
+                )
+                self.q_vars = tf.get_collection(
+                    tf.GraphKeys.TRAINABLE_VARIABLES,
+                    scope='q'
+                )
 
-            self.train_d = tf.train.AdamOptimizer(2e-4, beta1=0.5).minimize(
-                self.loss_d,
-                var_list=self.d_vars
-            )
-            self.train_gq = tf.train.AdamOptimizer(2e-4, beta1=0.5).minimize(
-                self.loss_g + self.loss_q,
-                var_list=[*self.g_vars, *self.q_vars]
-            )
+                self.train_d = tf.train.AdamOptimizer(2e-4, beta1=0.5).minimize(
+                    self.loss_d,
+                    var_list=self.d_vars
+                )
+                self.train_gq = tf.train.AdamOptimizer(2e-4, beta1=0.5).minimize(
+                    self.loss_g + self.loss_q,
+                    var_list=[*self.g_vars, *self.q_vars]
+                )
 
-            self.global_step = tf.get_variable("global_step", initializer=tf.constant_initializer(), shape=(), dtype=tf.int32)
-            self.inc_global_step = tf.assign_add(self.global_step, 1)
+                self.global_step = tf.get_variable("global_step", initializer=tf.constant_initializer(), shape=(), dtype=tf.int32)
+                self.inc_global_step = tf.assign_add(self.global_step, 1)
+
             self.init_op = tf.global_variables_initializer()
-
             self.logger.info("Graph construction finished")
             self.logger.info("log_dir %s", self.log_dir)
-            if os.path.exists(self.log_dir):
-                self.logger.warn("Logdir exists!")
-            if clear_logdir:
-                self.logger.info("Clearing logdir")
-                shutil.rmtree(self.log_dir, ignore_errors=True)
+
             self.train_writer = tf.summary.FileWriter(
                 self.log_dir, graph=self.graph, flush_secs=60)
             self.saver = tf.train.Saver(
@@ -202,6 +202,8 @@ class InfoGAN():
             self.logger.info("%4d dis %7.5f, gen %7.5f, q %7.5f", step, loss_dis, loss_gen, loss_q)
             self.train_writer.flush()
         else:
+            self.sess.run(self.train_gq)
+            self.sess.run(self.train_gq)
             self.sess.run(self.train_d, feed_dict=fd)
             self.sess.run(self.train_gq)
             self.sess.run(self.train_gq)
