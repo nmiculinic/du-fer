@@ -2,7 +2,6 @@ import tensorflow as tf
 from tensorflow.examples.tutorials.mnist import input_data
 from tflearn.layers.core import fully_connected
 from tflearn.layers.conv import conv_2d_transpose, conv_2d
-import seaborn as sns
 import numpy as np
 import shutil
 import os
@@ -12,13 +11,19 @@ import logging
 
 log_fmt = '[%(levelname)s] %(name)s: %(message)s'
 logging.basicConfig(level=logging.DEBUG, format=log_fmt)
-sns.set_style("dark")
 mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
 repo_root = os.path.abspath(os.path.normpath(os.path.join(os.path.dirname(__file__), '..')))
 
 
 def leaky_relu(x):
     return tf.maximum(x, 0.2 * x)
+
+
+"""
+    Default generator and dq common used for testing
+    dq_common is common part of dicriminator and aproximate
+    mutual information
+"""
 
 
 def default_generator(net):
