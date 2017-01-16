@@ -22,15 +22,53 @@ def leaky_relu(x):
     return tf.maximum(x, 0.2 * x)
 
 
-class InfoGAN():
+def default_generator(net):
+    net = fully_connected(net, 4 * 4 * 512, scope='fc')
+    net = tf.reshape(net, [tf.shape(net)[0], 4, 4, 512])
 
-    def __init__(self, name, batch_size=32, num_z=100, n_bernulli=10, n_gauss=3, l_bernulli=1.0, l_gauss=0.5, clear_logdir=False):
+    for i in range(3):
+        i2 = 2**i
+        net = conv_2d_transpose(
+            net, 256 // i2, 5, [7 * i2, 7 * i2], strides=2, scope="l%d" % (i + 1), bias=False)
+        net = batch_normalization(net, scope="bn_%d" % (i + 1))
+        net = tf.nn.relu(net)
+
+    net = conv_2d_transpose(net, 1, 5, [28, 28], scope="l4", bias=True)
+    return net
+
+
+def default_dq_common(net):
+    net = conv_2d(net, 64, 5, strides=2, scope='l1')
+    net = leaky_relu(net)
+
+    for i in range(4):
+        net = conv_2d(net, 64 * 2**i, 5, strides=2, scope='l%d' % (i + 2),
+                      bias=False)  # BN handles bias
+        net = batch_normalization(net, scope='bn_l%d' % (i + 2))
+        net = leaky_relu(net)
+
+    return net
+
+
+class InfoGAN():
+    def __init__(self, name, generator_fn=None, dq_common_fn=None, batch_size=128, num_z=100, n_bernulli=10, n_gauss=3, l_bernulli=1.0, l_gauss=0.5, clear_logdir=False):
         self.log_dir = os.path.join(
             repo_root, 'log', socket.gethostname(), name)
         self.logger = logging.getLogger(name)
 
         self.graph = tf.Graph()
         with self.graph.as_default():
+
+            if generator_fn is None:
+                self.logger.warn("Using default generator function")
+                generator_fn = default_generator
+            self.generator = generator_fn
+
+            if dq_common_fn is None:
+                self.logger.warn("Using default dq_common function")
+                dq_common_fn = default_dq_common
+            self.dq_common = dq_common_fn
+
             batch_size = tf.placeholder_with_default(batch_size, [])
             self.batch_size = batch_size
 
@@ -48,7 +86,8 @@ class InfoGAN():
 
             self.X = tf.placeholder(tf.float32, [None, 28, 28, 1])
             with tf.variable_scope("generator"):
-                self.g_log, self.g = self.generator()
+                self.g_log = self.generator(self.z)
+                self.g = tf.nn.sigmoid(self.g_log)
 
             with tf.variable_scope("disriminator"):
                 self.d_log_real, self.d_real = self.disriminator(self.X)
@@ -58,23 +97,30 @@ class InfoGAN():
                 qnet = self.dq_common(self.g)
 
             with tf.variable_scope("q"):
-                self.loss_q_ber = tf.reduce_mean(
-                    tf.nn.sigmoid_cross_entropy_with_logits(
-                        fully_connected(qnet, n_bernulli, scope='bernulli'),
-                        self.c_bernulli
+                if n_bernulli > 0:
+                    self.loss_q_ber = tf.reduce_mean(
+                        tf.nn.sigmoid_cross_entropy_with_logits(
+                            fully_connected(qnet, n_bernulli, scope='bernulli'),
+                            self.c_bernulli
+                        )
+                    )  # Average loss per c_bernulli
+                else:
+                    self.logger.warn("No Bernulli variables")
+                    self.loss_q_ber = tf.constant(0.0)
+
+                if n_gauss > 0:
+                    qc_mean = fully_connected(qnet, n_gauss, scope='normal_mu')
+                    qc_sigma = tf.abs(fully_connected(
+                        qnet, n_gauss, scope='normal_sigma')
                     )
-                )  # Average loss per c_bernulli
 
-                qc_mean = fully_connected(qnet, n_gauss, scope='normal_mu')
-                qc_sigma = tf.abs(fully_connected(
-                    qnet, n_gauss, scope='normal_sigma')
-                )
-
-                dist = tf.contrib.distributions.Normal(qc_mean, qc_sigma)
-                qc_log_normal = dist.log_pdf(self.c_gauss)
-                # -log jer minimiziram
-                print("qc_normal", qc_log_normal.get_shape())
-                self.loss_q_gauss = tf.reduce_mean(-qc_log_normal * self.c_gauss)
+                    dist = tf.contrib.distributions.Normal(qc_mean, qc_sigma)
+                    qc_log_normal = dist.log_pdf(self.c_gauss)
+                    # -log jer minimiziram
+                    self.loss_q_gauss = tf.reduce_mean(-qc_log_normal * self.c_gauss)
+                else:
+                    self.logger.warn("No Gauss variables")
+                    self.loss_q_gauss = tf.constant(0.0)
 
             self.loss_g = tf.reduce_mean(
                 tf.nn.sigmoid_cross_entropy_with_logits(
@@ -127,11 +173,11 @@ class InfoGAN():
                 scope='q'
             )
 
-            self.train_d = tf.train.AdamOptimizer().minimize(
+            self.train_d = tf.train.AdamOptimizer(2e-4, beta1=0.5).minimize(
                 self.loss_d,
                 var_list=d_vars
             )
-            self.train_gq = tf.train.AdamOptimizer().minimize(
+            self.train_gq = tf.train.AdamOptimizer(2e-4, beta1=0.5).minimize(
                 self.loss_g + self.loss_q,
                 var_list=[*g_vars, *q_vars]
             )
@@ -153,7 +199,7 @@ class InfoGAN():
                 keep_checkpoint_every_n_hours=1,
             )
 
-    def train_loop(self, summary_every=100, save_every=1000):
+    def train_loop(self, summary_every=20, save_every=1000):
         step = self.get_global_step()
         with self.graph.as_default():
             tflearn.is_training(True, session=self.sess)
@@ -178,37 +224,6 @@ class InfoGAN():
             self.save()
 
         self.sess.run(self.inc_global_step)
-
-    def generator(self):
-        net = self.z
-        net = fully_connected(net, 20 * 49, scope='fc')
-        net = tf.reshape(net, [tf.shape(net)[0], 7, 7, 20])
-
-        net = conv_2d_transpose(
-            net, 32, 3, [14, 14], strides=2, scope="l1", bias=False)
-        net = batch_normalization(net, scope="bn_1")
-        net = tf.nn.relu(net)
-
-        net = conv_2d_transpose(net, 16, 3, [14, 14], scope="l2", bias=False)
-        net = batch_normalization(net, scope="bn_2")
-        net = tf.nn.relu(net)
-
-        net = conv_2d_transpose(net, 1, 3, [28, 28], strides=2, scope="l3")
-        return net, tf.nn.sigmoid(net)
-
-    def dq_common(self, net):
-        net = conv_2d(net, 4, 3, strides=2, scope='l1')
-        net = leaky_relu(net)
-
-        net = conv_2d(net, 4, 3, strides=2, scope='l2',
-                      bias=False)  # BN handles bias
-        net = batch_normalization(net, scope='bn_l2')
-        net = leaky_relu(net)
-
-        net = conv_2d(net, 4, 3, strides=2, scope='l3', bias=False)
-        net = batch_normalization(net, scope='bn_l3')
-        net = leaky_relu(net)
-        return net
 
     def disriminator(self, net):
         net = self.dq_common(net)
