@@ -67,6 +67,7 @@ class InfoGAN():
 
                 self.z = tf.random_uniform(shape=[self.batch_size, num_z])
                 self.z = tf.concat_v2([self.c_gauss, self.c_bernulli, self.z], 1)
+                print("z_shape", self.z.get_shape())
 
             with tf.variable_scope("generator"):
                 if generator_fn is None:
@@ -75,14 +76,15 @@ class InfoGAN():
                 self.generator = generator_fn
 
                 self.g_log = self.generator(self.z)
-                self.g = tf.nn.sigmoid(self.g_log)
+                self.g = tf.nn.tanh(self.g_log)
 
             with tf.variable_scope("disriminator"):
                 if dq_common_fn is None:
                     self.logger.warn("Using default dq_common function")
                     dq_common_fn = default_dq_common
                 self.dq_common = dq_common_fn
-                self.d_log_real = fully_connected(self.dq_common(self.X), 1, scope='fc')
+                self.input_X = 2 * self.X - 1
+                self.d_log_real = fully_connected(self.dq_common(self.input_X), 1, scope='fc')
                 self.d_real = tf.nn.sigmoid(self.d_log_real)
 
             with tf.variable_scope("disriminator", reuse=True):
@@ -145,13 +147,16 @@ class InfoGAN():
                     tf.summary.scalar("q", self.loss_q),
                     tf.summary.scalar("q_gauss", self.loss_q_gauss),
                     tf.summary.scalar("q_ber", self.loss_q_ber),
-                    tf.summary.image("gen_example", self.g, max_outputs=10)
+                    tf.summary.image("gen_example", self.g, max_outputs=10),
+                    tf.summary.histogram("gen_output", self.g),
                 ])
 
                 self.dis_summ = tf.summary.merge([
                     tf.summary.scalar("d_fake", self.loss_d_fake),
                     tf.summary.scalar("d_real", self.loss_d_real),
                     tf.summary.scalar("d", self.loss_d),
+                    tf.summary.image("input_imaged", self.input_X),
+                    tf.summary.histogram("dis_input", self.input_X),
                 ])
 
             with tf.name_scope("train"):
@@ -210,10 +215,8 @@ class InfoGAN():
             self.sess.run(self.train_gq)
             self.sess.run(self.train_gq)
             self.sess.run(self.train_d, feed_dict=fd)
-            self.sess.run(self.train_gq)
-            self.sess.run(self.train_gq)
 
-        if step % save_every == 0:
+        if step % save_every == 0 and step > 0:
             self.save()
 
         self.sess.run(self.inc_global_step)
@@ -329,6 +332,10 @@ if __name__ == "__main__":
             model.logger.debug("D phase vars")
             for var in model.d_vars:
                 model.logger.debug(var.name)
+
+            model.logger.debug("MNIST RANGE")
+            model.logger.debug("min %f max %f", np.min(mnist.train.next_batch(100)[0]), np.max(mnist.train.next_batch(100)[0])
+            )
 
         for i in range(model.get_global_step() + 1, 101):
             model.train_loop(summary_every=10)
