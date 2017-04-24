@@ -40,7 +40,8 @@ def default_dq_common(net):
 
 
 class InfoGAN():
-    def __init__(self, name, generator_fn=None, dq_common_fn=None, batch_size=128, num_z=100, n_bernulli=10, n_gauss=3, l_bernulli=1.0, l_gauss=0.5, clear_logdir=False):
+    def __init__(self, name, generator_fn=None, dq_common_fn=None, batch_size=128, num_z=100, n_b
+    ernulli=10, n_gauss=3, l_bernulli=1.0, l_gauss=0.5, clear_logdir=False):
         self.log_dir = os.path.join(
             repo_root, 'log', socket.gethostname(), name)
         self.logger = logging.getLogger(name)
